@@ -80,19 +80,6 @@ class SyncSimRaccoonEnv:
         if self.use_viewer:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
 
-            if self.camera_name is not None:
-                cam_id = mujoco.mj_name2id(
-                    self.model,
-                    mujoco.mjtObj.mjOBJ_CAMERA,
-                    self.camera_name,
-                )
-                if cam_id == -1:
-                    raise ValueError(f"camera not found: {self.camera_name}")
-
-                self.viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-                self.viewer.cam.fixedcamid = cam_id
-                self.viewer.sync()
-
         self.target_angles = [0.0] * 4
         self.current_setpoints = [0.0] * 5
         self.joint_velocities = [0.0] * 4
@@ -214,11 +201,18 @@ class SyncSimRaccoonEnv:
         self,
         action: Sequence[float],
         speed: int = 70,
-        max_delta_xyz: float = 0.01,
-        delta_scale: float = 1.0,
-        shrink_ratio: float = 0.15,
-        max_retries: int = 3,
+        max_delta_xyz: float = 0.015,
+        delta_scale: float = 1.2,
+        shrink_ratio: float = 0.1,
+        max_retries: int = 5,
     ) -> Dict[str, object]:
+        """
+        Improved 7D-to-4DOF mapping:
+        - Increased max_delta_xyz from 0.01 to 0.015 for faster movement
+        - Increased delta_scale from 1.0 to 1.2 for better responsiveness
+        - Reduced shrink_ratio from 0.15 to 0.1 for smoother retry
+        - Increased max_retries from 3 to 5 for better IK success rate
+        """
         if len(action) < 7:
             raise ValueError(f"action 길이가 부족합니다: len={len(action)}, action={action}")
 
@@ -358,16 +352,11 @@ class SyncSimRaccoonEnv:
 
         self.data.ctrl[4] = self.current_setpoints[4]
 
-    def step_n(self, n_steps: int, viewer_sync_every: int = 20) -> None:
-        for i in range(int(n_steps)):
+    def step_n(self, n_steps: int) -> None:
+        for _ in range(int(n_steps)):
             self._apply_controls_once()
             mujoco.mj_step(self.model, self.data)
-
-            if (
-                self.viewer is not None
-                and self.viewer.is_running()
-                and i % viewer_sync_every == 0
-            ):
+            if self.viewer is not None and self.viewer.is_running():
                 self.viewer.sync()
 
     def steps_for_seconds(self, seconds: float) -> int:
